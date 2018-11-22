@@ -5,8 +5,9 @@ import pycuda.driver as dv
 import pycuda.autoinit
 from pycuda.compiler import SourceModule
 from sax_utils import cut_points
+from matplotlib import pyplot as plt
 
-
+cluster_num = 0
 def get_ushapelet(data, splen, num_projections):
     """
     :param data: Time series data matrix in the shape (num_time_series,time_series_length)
@@ -37,14 +38,26 @@ def get_ushapelet(data, splen, num_projections):
     # Compute the gap score for this set of shapelets.
     scores,distances,dt = compute_gap(shapelet_cands,data)
 
-    cluster_members = find_best_shapelet(data, scores,distances,dt)
+    # Get the indices of the members of this cluster in the original dataset.
+    shapelet_idx,cluster_members = find_best_shapelet(scores,distances,dt)
 
-
+    ts_idx,sp_idx = result_idcs[:,shapelet_idx]
+    shapelet_subseq = subseqs[ts_idx,sp_idx,:]
+    # Draw a figure of the shapelet that we extracted.
+    global cluster_num
+    plt.figure(figsize=(9,7))
+    plt.title("Extracted Shapelet")
+    plt.plot(data[ts_idx])
+    plt.plot(range(sp_idx,sp_idx+splen),shapelet_subseq)
+    plt.legend(["Parent TS", "Extracted Shapelet"])
+    plt.savefig("Cluster_%d.png" % cluster_num)
+    cluster_num += 1
+    # Return these indices along with the shapelet that we found.
+    return cluster_members
     print("Done")
 
 
-def find_best_shapelet(data, scores,distances,dt):
-
+def find_best_shapelet(scores,distances,dt):
 
     # Find the maximum gap score from our shapelet candidates.
     best_gap_idx = np.argmax(scores)
@@ -53,9 +66,11 @@ def find_best_shapelet(data, scores,distances,dt):
     # Find the indices of the time series that belong to this cluster.
     # i.e. Find the indices in the distances array where the distance between the TS and the shapelet is below the
     # threshold
-    member_idcs = distances[best_gap_idx] <= dist_cutoff
+    member_idcs = np.argwhere(distances[best_gap_idx] <= dist_cutoff)
 
-    print("Done!")
+    # Return the index of the shapelet with the best gap score, and the indices of the time series which belong to
+    # this cluster.
+    return best_gap_idx,member_idcs[:,0]
 
 
 def get_subsequences(data, splen):
