@@ -3,8 +3,8 @@ import numpy as np
 import os
 from UShapelet import get_ushapelet
 FILE_NAME = "FourClasses.txt"
-
-file_path = os.path.join(os.getcwd(),FILE_NAME)
+ROOT_DIR = "/tmp/pycharm_project_681/"
+file_path = os.path.join(ROOT_DIR,FILE_NAME)
 
 # Read the file in from CSV
 raw_data = pd.read_csv(file_path,header=None)

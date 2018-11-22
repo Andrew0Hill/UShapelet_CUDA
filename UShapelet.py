@@ -1,4 +1,5 @@
 import numpy as np
+from math import ceil,floor
 import pandas as pd
 import pycuda.driver as dv
 import pycuda.autoinit
@@ -26,10 +27,35 @@ def get_ushapelet(data, splen, num_projections):
         projections = get_random_projections(sax_subseqs)
         counts[:,:,i] = count_collisions(projections)
 
-    results = filter_candidates(counts)
+    # Returns a sorted list of indices
+    result_idcs = filter_candidates(counts)
+
+
+    # Get the actual shapelets that are referenced by the indices we got from the candidate filtering.
+    shapelet_cands = subseqs[result_idcs[0],result_idcs[1],:]
+
+    # Compute the gap score for this set of shapelets.
+    scores,distances,dt = compute_gap(shapelet_cands,data)
+
+    cluster_members = find_best_shapelet(data, scores,distances,dt)
+
+
     print("Done")
 
 
+def find_best_shapelet(data, scores,distances,dt):
+
+
+    # Find the maximum gap score from our shapelet candidates.
+    best_gap_idx = np.argmax(scores)
+    # Find the distance cutoff associated with this gap score.
+    dist_cutoff = dt[best_gap_idx]
+    # Find the indices of the time series that belong to this cluster.
+    # i.e. Find the indices in the distances array where the distance between the TS and the shapelet is below the
+    # threshold
+    member_idcs = distances[best_gap_idx] <= dist_cutoff
+
+    print("Done!")
 
 
 def get_subsequences(data, splen):
@@ -152,13 +178,69 @@ def filter_candidates(counts):
 
     idcs = cand_orig_idcs[sorted_cand_indcs].T
 
-    return counts[idcs[0],idcs[1]]
+    return idcs
 
-def compute_gap(data):
+def compute_gap(shapelets,data):
     """
-    :param data: A shapelet or set of shapelets
-    :return: the gap score metric for this shapelet.
+    :param shapelets: A set of shapelets to compute the gap score for.
+    :param data: The data matrix of all time series data. Should be of shape (num_time_series, length_time_series)
+    :return: the gap score metric for this shapelet or shapelets.
     """
-    pass
+
+    lb = 2
+
+    num_sp,len_sp = shapelets.shape
+
+    num_ts,len_ts = data.shape
+
+    # We will calculate the subsequence distance (sDist() in the paper) to all time series in the dataset.
+    # sDist is defined as the minimum distance between a subsequence and a time series over all positions of that
+    # subsequence in the time series. We will keep track of the sDist to every time series for every shapelet.
+    distances = np.zeros((num_sp, num_ts))
+
+    # First compute the subsequence distance from this shapelet to every sequence of this length in the dataset.
+    # Iterate through all shapelets
+    for i in range(num_sp):
+        # Iterate through all possible time series
+        for j in range(num_ts):
+            min_dist = np.inf
+            # Iterate through all possible positions of this shapelet
+            # There are data.shape[1] - sp_len + 1 of these positions.
+            for k in range(len_ts - len_sp + 1):
+                dist = np.sum(np.square(shapelets[i] - data[j,k:k+len_sp]))
+                if dist < min_dist:
+                    min_dist = dist
+            distances[i,j] = min_dist
+
+    sorted_dists = np.sort(distances,axis=1)
+    # No, I don't know why
+    startPoint = ceil(sorted_dists.shape[1]*0.167)-1
+    endPoint = floor(sorted_dists.shape[1]*0.833)-1
+
+    # Array to hold the gap scores for each shapelet
+    scores = np.zeros(num_sp)
+    # Array to hold the dt, or distance cutoff that separates group A from group B.
+    dt = np.zeros(num_sp)
+    for i in range(num_sp):
+        for j in range(startPoint,endPoint):
+            d = sorted_dists[i,j]
+            A_idcs = d >= distances[i]
+            Da = distances[i,A_idcs]
+            Db = distances[i,~A_idcs]
+            r = Da.shape[0]/Db.shape[0]
+
+            if ((0.2 < r) and (r < 5)):
+                ma = np.mean(Da)
+                mb = np.mean(Db)
+                sa = np.std(Da)
+                sb = np.std(Db)
+                gap = mb - sb - (ma + sa)
+
+                if gap > scores[i]:
+                    scores[i] = gap
+                    dt[i] = d
+
+    return scores,distances,dt
+
 
 
