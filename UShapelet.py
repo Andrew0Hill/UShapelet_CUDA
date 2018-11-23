@@ -1,14 +1,22 @@
 import numpy as np
 from math import ceil,floor
 import pandas as pd
-import pycuda.driver as dv
+import time
+import pycuda.driver as cuda
 import pycuda.autoinit
 from pycuda.compiler import SourceModule
-from sax_utils import cut_points
+from pycuda.gpuarray import GPUArray
+from pycuda.gpuarray import min as cuda_min
+from pycuda.gpuarray import zeros as cuda_zeros
+from pycuda.cumath import sqrt as cusqrt
+from utils import cut_points, runtime
+from timekeeper import TimeKeeper
 from matplotlib import pyplot as plt
 
+
+
 cluster_num = 0
-def get_ushapelet(data, splen, num_projections):
+def get_ushapelet(data, splen, num_projections, use_cuda=False, tk=None):
     """
     :param data: Time series data matrix in the shape (num_time_series,time_series_length)
     :param splen: Length of the shapelet to extract.
@@ -17,31 +25,36 @@ def get_ushapelet(data, splen, num_projections):
     """
     # Get subsequences of each time series
     # We can use indices here to ensure that we are not making unecessary copies of data.
-    subseqs = get_subsequences(data,splen)
+
+    subseq_time, subseqs = get_subsequences(data,splen)
 
     # Get the SAX representations of each of the sub-sequences
-    sax_subseqs = convert_to_SAX(subseqs)
+    sax_time,sax_subseqs = convert_to_SAX(subseqs)
 
+    collision_count_time = time.clock()
     counts = np.zeros((sax_subseqs.shape[0],sax_subseqs.shape[1],num_projections))
-
     for i in range(num_projections):
         projections = get_random_projections(sax_subseqs)
         counts[:,:,i] = count_collisions(projections)
-
+    collision_count_time = time.clock() - collision_count_time
     # Returns a sorted list of indices
-    result_idcs = filter_candidates(counts)
+
+    filter_time,cand_idcs = filter_candidates(counts)
+    # If no candidates passed filtering, we are done clustering.
+    if cand_idcs.shape[1] == 0:
+        return None,None,None
 
 
     # Get the actual shapelets that are referenced by the indices we got from the candidate filtering.
-    shapelet_cands = subseqs[result_idcs[0],result_idcs[1],:]
+    shapelet_cands = subseqs[cand_idcs[0],cand_idcs[1],:]
 
     # Compute the gap score for this set of shapelets.
-    scores,distances,dt = compute_gap(shapelet_cands,data)
+    gap_time,(scores,distances,dt) = compute_gap(shapelet_cands,data)
 
     # Get the indices of the members of this cluster in the original dataset.
-    shapelet_idx,cluster_members = find_best_shapelet(scores,distances,dt)
+    search_time,(shapelet_idx,shapelet_score,cluster_members) = find_best_shapelet(scores,distances,dt)
 
-    ts_idx,sp_idx = result_idcs[:,shapelet_idx]
+    ts_idx,sp_idx = cand_idcs[:,shapelet_idx]
     shapelet_subseq = subseqs[ts_idx,sp_idx,:]
     # Draw a figure of the shapelet that we extracted.
     global cluster_num
@@ -52,11 +65,15 @@ def get_ushapelet(data, splen, num_projections):
     plt.legend(["Parent TS", "Extracted Shapelet"])
     plt.savefig("Cluster_%d.png" % cluster_num)
     cluster_num += 1
+
+    if tk:
+        # Add the runtimes from this run
+        tk.accum(subseq_time,sax_time,collision_count_time,filter_time,gap_time,search_time)
+
     # Return these indices along with the shapelet that we found.
-    return cluster_members
-    print("Done")
+    return shapelet_idx,shapelet_score,cluster_members
 
-
+@runtime
 def find_best_shapelet(scores,distances,dt):
 
     # Find the maximum gap score from our shapelet candidates.
@@ -68,11 +85,13 @@ def find_best_shapelet(scores,distances,dt):
     # threshold
     member_idcs = np.argwhere(distances[best_gap_idx] <= dist_cutoff)
 
-    # Return the index of the shapelet with the best gap score, and the indices of the time series which belong to
-    # this cluster.
-    return best_gap_idx,member_idcs[:,0]
+    # Return:
+    # 1. The index of the best gap score found
+    # 2. The best gap score found (used as a stopping condition)
+    # 3. The indices of the time series that belong to the cluster of this shapelet.
+    return best_gap_idx,scores[best_gap_idx],member_idcs[:,0]
 
-
+@runtime
 def get_subsequences(data, splen):
     """
     :param data: A data matrix of shape (num_time_series, len_time_series).
@@ -93,6 +112,7 @@ def get_subsequences(data, splen):
 
     return subseqs
 
+@runtime
 def convert_to_SAX(data, paa_len = 16, paa_vocab=4):
     """
     :param data: A Data matrix of (num_time_series, num_shapelet, length_shapelet).
@@ -132,7 +152,6 @@ def convert_to_SAX(data, paa_len = 16, paa_vocab=4):
     return sax_words
 
 
-
 def get_random_projections(data,num_masked_elems = 3):
     """
     :param data: A Data matrix of SAX words in the shape (num_time_series, num_shapelet, paa_len).
@@ -153,7 +172,6 @@ def get_random_projections(data,num_masked_elems = 3):
     # Return the masked SAX representation.
     return tmp
 
-
 def count_collisions(projections):
     """
     :param projections: A data matrix of (num_time_series, num_shapelet, length_shapelet)
@@ -173,6 +191,7 @@ def count_collisions(projections):
     print("Done!")
     return collisions
 
+@runtime
 def filter_candidates(counts):
     """
     :param counts: Counts of the number of collisions for each shapelet
@@ -195,7 +214,8 @@ def filter_candidates(counts):
 
     return idcs
 
-def compute_gap(shapelets,data):
+@runtime
+def compute_gap(shapelets,data,use_cuda=False):
     """
     :param shapelets: A set of shapelets to compute the gap score for.
     :param data: The data matrix of all time series data. Should be of shape (num_time_series, length_time_series)

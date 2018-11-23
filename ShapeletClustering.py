@@ -3,7 +3,7 @@ import pandas as pd
 import pycuda.driver as dv
 import pycuda.autoinit
 from pycuda.compiler import SourceModule
-from sax_utils import cut_points
+from utils import cut_points
 
 ROOT_DIR = "C:/Users/96ahi/PycharmProjects/ParallelFinalProject/kk"
 
