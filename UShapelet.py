@@ -10,10 +10,11 @@ from pycuda.gpuarray import min as cuda_min
 from pycuda.gpuarray import zeros as cuda_zeros
 from pycuda.cumath import sqrt as cusqrt
 from utils import cut_points, runtime
+from cuda_helper import CUDA_sdist
 from timekeeper import TimeKeeper
 from matplotlib import pyplot as plt
 
-
+cuda_sdist = CUDA_sdist()
 
 cluster_num = 0
 def get_ushapelet(data, splen, num_projections, use_cuda=False, tk=None):
@@ -215,7 +216,7 @@ def filter_candidates(counts):
     return idcs
 
 @runtime
-def compute_gap(shapelets,data,use_cuda=False):
+def compute_gap(shapelets,data,use_cuda=True):
     """
     :param shapelets: A set of shapelets to compute the gap score for.
     :param data: The data matrix of all time series data. Should be of shape (num_time_series, length_time_series)
@@ -228,24 +229,31 @@ def compute_gap(shapelets,data,use_cuda=False):
 
     num_ts,len_ts = data.shape
 
+
     # We will calculate the subsequence distance (sDist() in the paper) to all time series in the dataset.
     # sDist is defined as the minimum distance between a subsequence and a time series over all positions of that
     # subsequence in the time series. We will keep track of the sDist to every time series for every shapelet.
-    distances = np.zeros((num_sp, num_ts))
+    distances = np.zeros((num_sp, num_ts),dtype=np.float32)
 
-    # First compute the subsequence distance from this shapelet to every sequence of this length in the dataset.
-    # Iterate through all shapelets
-    for i in range(num_sp):
-        # Iterate through all possible time series
-        for j in range(num_ts):
-            min_dist = np.inf
-            # Iterate through all possible positions of this shapelet
-            # There are data.shape[1] - sp_len + 1 of these positions.
-            for k in range(len_ts - len_sp + 1):
-                dist = np.sum(np.square(shapelets[i] - data[j,k:k+len_sp]))
-                if dist < min_dist:
-                    min_dist = dist
-            distances[i,j] = min_dist
+    if use_cuda:
+        shapelets_32 = shapelets.astype(np.float32)
+        data_32 = data.astype(np.float32).copy(order="C")
+        # Call the CUDA function on this data.
+        cuda_sdist(shapelets_32,data_32,distances,len_sp,len_ts,num_ts,num_sp)
+    else:
+        # First compute the subsequence distance from this shapelet to every sequence of this length in the dataset.
+        # Iterate through all shapelets
+        for i in range(num_sp):
+            # Iterate through all possible time series
+            for j in range(num_ts):
+                min_dist = np.inf
+                # Iterate through all possible positions of this shapelet
+                # There are data.shape[1] - sp_len + 1 of these positions.
+                for k in range(len_ts - len_sp + 1):
+                    dist = np.sum(np.square(shapelets[i] - data[j, k:k + len_sp]))
+                    if dist < min_dist:
+                        min_dist = dist
+                distances[i, j] = min_dist
 
     sorted_dists = np.sort(distances,axis=1)
     # No, I don't know why

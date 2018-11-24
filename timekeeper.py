@@ -19,4 +19,4 @@ class TimeKeeper(object):
         plt.figure(figsize=(9,7))
         plt.title("CPU Time per Section")
         plt.pie(normalized,labels=["Subsequence","SAX","Collision","Filtering","Gap Score", "Search"],autopct="%2.2f%%",explode=(0.2,0.2,0.2,0.2,0.2,0.2))
-        plt.savefig("/tmp/pycharm_project_681/usage_chart.png")
+        plt.savefig("/tmp/pycharm_project_926/usage_chart.png")
