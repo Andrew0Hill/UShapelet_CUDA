@@ -1,14 +1,6 @@
 import numpy as np
 from math import ceil,floor
-import pandas as pd
 import time
-import pycuda.driver as cuda
-import pycuda.autoinit
-from pycuda.compiler import SourceModule
-from pycuda.gpuarray import GPUArray
-from pycuda.gpuarray import min as cuda_min
-from pycuda.gpuarray import zeros as cuda_zeros
-from pycuda.cumath import sqrt as cusqrt
 from utils import cut_points, runtime
 from cuda_helper import CUDA_sdist
 from timekeeper import TimeKeeper
@@ -100,7 +92,6 @@ def get_subsequences(data, splen):
     :return: The indices of the sub-subsequences in each time series.
     """
 
-
     # Unpack the data's shape tuple into two elements. The first dimension (# of rows) is the number of time series
     # objects. The second dimension is the length of each time series.
     ts_num,ts_len = data.shape
@@ -120,7 +111,6 @@ def convert_to_SAX(data, paa_len = 16, paa_vocab=4):
     :return: The SAX representations of each shapelet in the matrix.
     """
     num_ts,num_sp,sp_len = data.shape
-
     # The PAA (Piecewise Aggregate Approximation) step will generate a PAA approximation of every sub-sequence.
     # This PAA representation will be a integer string of length paa_len, containing at most paa_vocab unique symbols.
 
@@ -134,10 +124,18 @@ def convert_to_SAX(data, paa_len = 16, paa_vocab=4):
         pts_per_letter = sp_len // paa_len
         means[:] = np.mean(data.reshape(num_ts,num_sp,paa_len,pts_per_letter),axis=-1)
     else:
-        tmp = data.repeat(paa_len).reshape(num_ts,num_sp,paa_len,sp_len)
-        means[:] = np.mean(tmp,axis=-1)
 
-    # TODO: remove the duplicate sequences here?
+        # Alternative way of calculating this without using extra memory
+        for i in range(0,sp_len*paa_len):
+            means[:, :, i // sp_len] += data[:, :, i // paa_len]
+            # We are zero-indexed, so we have to check if the remainder is one less than sp_len
+            # instead of for a zero remainder.
+            if i % sp_len == sp_len-1:
+                means[:,:,i//sp_len] = means[:,:,i//sp_len]/sp_len
+
+        #tmp = data.repeat(paa_len).reshape(num_ts,num_sp,paa_len,sp_len)
+        #means[:] = np.mean(tmp,axis=-1)
+
     # If there are any consecutive shapelets that have the same PAA approximation, we keep track of it so that we do
     # not hash the shapelet twice and count both.
     skip_idcs = np.where(means[:,:-1,:] == means[:,1:,:])
@@ -175,13 +173,15 @@ def get_random_projections(data,num_masked_elems = 3):
 
 def count_collisions(projections):
     """
-    :param projections: A data matrix of (num_time_series, num_shapelet, length_shapelet)
-    :return: The collisions found for each random mask version of the shapelet
+    :param projections: A data matrix of (num_time_series, num_shapelet, length_paa)
+    :return: The collisions found for each random mask version of the shapelet.
     """
     num_ts,num_sp,paa_len = projections.shape
     collisions = np.zeros((num_ts,num_sp))
+
     # Dictionary contains pairs of {SAX_Word -> first_index_appearance}
     collisions_map = {}
+
     for ts in range(num_ts):
         for sp in range(num_sp):
             tmp_string = "".join(map(str,projections[ts,sp,:]))
@@ -189,7 +189,6 @@ def count_collisions(projections):
                 collisions_map[tmp_string] = (ts,sp)
             else:
                 collisions[collisions_map[tmp_string]] += 1
-    print("Done!")
     return collisions
 
 @runtime
