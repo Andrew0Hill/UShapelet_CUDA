@@ -3,8 +3,9 @@ import numpy as np
 import os
 from UShapelet import get_ushapelet
 from timekeeper import TimeKeeper
+
 FILE_NAME = "FourClasses.txt"
-ROOT_DIR = "/tmp/pycharm_project_681/"
+ROOT_DIR = "C:\\Users\\96ahi\\PycharmProjects\\ParallelFinalProject"
 file_path = os.path.join(ROOT_DIR,FILE_NAME)
 
 tk = TimeKeeper()
@@ -30,7 +31,7 @@ orig_score = 0
 temp_data = data
 while temp_data.shape[0] > 0:
     # Extract a U-Shapelet from the data.
-    idx,score,members = get_ushapelet(temp_data,30,10, tk=tk)
+    idx,score,members = get_ushapelet(temp_data,5,10, tk=tk)
 
     if idx is None:
         print("Finished clustering.")

@@ -1,19 +1,12 @@
 import numpy as np
 from math import ceil,floor
-import pandas as pd
 import time
-import pycuda.driver as cuda
-import pycuda.autoinit
-from pycuda.compiler import SourceModule
-from pycuda.gpuarray import GPUArray
-from pycuda.gpuarray import min as cuda_min
-from pycuda.gpuarray import zeros as cuda_zeros
-from pycuda.cumath import sqrt as cusqrt
 from utils import cut_points, runtime
+from cuda_helper import CUDA_sdist
 from timekeeper import TimeKeeper
 from matplotlib import pyplot as plt
 
-
+cuda_sdist = CUDA_sdist()
 
 cluster_num = 0
 def get_ushapelet(data, splen, num_projections, use_cuda=False, tk=None):
@@ -99,7 +92,6 @@ def get_subsequences(data, splen):
     :return: The indices of the sub-subsequences in each time series.
     """
 
-
     # Unpack the data's shape tuple into two elements. The first dimension (# of rows) is the number of time series
     # objects. The second dimension is the length of each time series.
     ts_num,ts_len = data.shape
@@ -119,7 +111,6 @@ def convert_to_SAX(data, paa_len = 16, paa_vocab=4):
     :return: The SAX representations of each shapelet in the matrix.
     """
     num_ts,num_sp,sp_len = data.shape
-
     # The PAA (Piecewise Aggregate Approximation) step will generate a PAA approximation of every sub-sequence.
     # This PAA representation will be a integer string of length paa_len, containing at most paa_vocab unique symbols.
 
@@ -133,10 +124,18 @@ def convert_to_SAX(data, paa_len = 16, paa_vocab=4):
         pts_per_letter = sp_len // paa_len
         means[:] = np.mean(data.reshape(num_ts,num_sp,paa_len,pts_per_letter),axis=-1)
     else:
-        tmp = data.repeat(paa_len).reshape(num_ts,num_sp,paa_len,sp_len)
-        means[:] = np.mean(tmp,axis=-1)
 
-    # TODO: remove the duplicate sequences here?
+        # Alternative way of calculating this without using extra memory
+        for i in range(0,sp_len*paa_len):
+            means[:, :, i // sp_len] += data[:, :, i // paa_len]
+            # We are zero-indexed, so we have to check if the remainder is one less than sp_len
+            # instead of for a zero remainder.
+            if i % sp_len == sp_len-1:
+                means[:,:,i//sp_len] = means[:,:,i//sp_len]/sp_len
+
+        #tmp = data.repeat(paa_len).reshape(num_ts,num_sp,paa_len,sp_len)
+        #means[:] = np.mean(tmp,axis=-1)
+
     # If there are any consecutive shapelets that have the same PAA approximation, we keep track of it so that we do
     # not hash the shapelet twice and count both.
     skip_idcs = np.where(means[:,:-1,:] == means[:,1:,:])
@@ -174,13 +173,15 @@ def get_random_projections(data,num_masked_elems = 3):
 
 def count_collisions(projections):
     """
-    :param projections: A data matrix of (num_time_series, num_shapelet, length_shapelet)
-    :return: The collisions found for each random mask version of the shapelet
+    :param projections: A data matrix of (num_time_series, num_shapelet, length_paa)
+    :return: The collisions found for each random mask version of the shapelet.
     """
     num_ts,num_sp,paa_len = projections.shape
     collisions = np.zeros((num_ts,num_sp))
+
     # Dictionary contains pairs of {SAX_Word -> first_index_appearance}
     collisions_map = {}
+
     for ts in range(num_ts):
         for sp in range(num_sp):
             tmp_string = "".join(map(str,projections[ts,sp,:]))
@@ -188,7 +189,6 @@ def count_collisions(projections):
                 collisions_map[tmp_string] = (ts,sp)
             else:
                 collisions[collisions_map[tmp_string]] += 1
-    print("Done!")
     return collisions
 
 @runtime
@@ -215,7 +215,7 @@ def filter_candidates(counts):
     return idcs
 
 @runtime
-def compute_gap(shapelets,data,use_cuda=False):
+def compute_gap(shapelets,data,use_cuda=True):
     """
     :param shapelets: A set of shapelets to compute the gap score for.
     :param data: The data matrix of all time series data. Should be of shape (num_time_series, length_time_series)
@@ -228,24 +228,31 @@ def compute_gap(shapelets,data,use_cuda=False):
 
     num_ts,len_ts = data.shape
 
+
     # We will calculate the subsequence distance (sDist() in the paper) to all time series in the dataset.
     # sDist is defined as the minimum distance between a subsequence and a time series over all positions of that
     # subsequence in the time series. We will keep track of the sDist to every time series for every shapelet.
-    distances = np.zeros((num_sp, num_ts))
+    distances = np.zeros((num_sp, num_ts),dtype=np.float32)
 
-    # First compute the subsequence distance from this shapelet to every sequence of this length in the dataset.
-    # Iterate through all shapelets
-    for i in range(num_sp):
-        # Iterate through all possible time series
-        for j in range(num_ts):
-            min_dist = np.inf
-            # Iterate through all possible positions of this shapelet
-            # There are data.shape[1] - sp_len + 1 of these positions.
-            for k in range(len_ts - len_sp + 1):
-                dist = np.sum(np.square(shapelets[i] - data[j,k:k+len_sp]))
-                if dist < min_dist:
-                    min_dist = dist
-            distances[i,j] = min_dist
+    if use_cuda:
+        shapelets_32 = shapelets.astype(np.float32)
+        data_32 = data.astype(np.float32).copy(order="C")
+        # Call the CUDA function on this data.
+        cuda_sdist(shapelets_32,data_32,distances,len_sp,len_ts,num_ts,num_sp)
+    else:
+        # First compute the subsequence distance from this shapelet to every sequence of this length in the dataset.
+        # Iterate through all shapelets
+        for i in range(num_sp):
+            # Iterate through all possible time series
+            for j in range(num_ts):
+                min_dist = np.inf
+                # Iterate through all possible positions of this shapelet
+                # There are data.shape[1] - sp_len + 1 of these positions.
+                for k in range(len_ts - len_sp + 1):
+                    dist = np.sum(np.square(shapelets[i] - data[j, k:k + len_sp]))
+                    if dist < min_dist:
+                        min_dist = dist
+                distances[i, j] = min_dist
 
     sorted_dists = np.sort(distances,axis=1)
     # No, I don't know why

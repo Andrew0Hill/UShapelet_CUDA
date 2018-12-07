@@ -9,8 +9,8 @@ cut_points = {
 # Simple decorator to time each part of program execution
 def runtime(f):
     def time_func(*args, **kwargs):
-        st = time.clock()
+        st = time.perf_counter()
         result = f(*args, **kwargs)
-        rt = time.clock() - st
+        rt = time.perf_counter() - st
         return (rt,result)
     return time_func
