@@ -5,7 +5,7 @@ from UShapelet import get_ushapelet
 from timekeeper import TimeKeeper
 
 FILE_NAME = "FourClasses.txt"
-ROOT_DIR = "/tmp/pycharm_project_926"
+ROOT_DIR = os.getcwd()
 file_path = os.path.join(ROOT_DIR,FILE_NAME)
 
 tk = TimeKeeper()

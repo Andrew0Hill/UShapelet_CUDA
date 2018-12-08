@@ -34,22 +34,27 @@ cuda_module = SourceModule("""
         distances[sp_idx * num_ts + ts_idx] = min_sum;
     }
   }
+  
+  /*
+   *
+   * BEGIN compute_PAA
+   *
+   */
   __global__ void compute_PAA(float* data, 
                               float* means,
-                              float* cutoffs, 
-                              int* sax, 
+                              float* cutoffs,
+                              int* sax_words,
                               int num_ts, 
                               int num_sp, 
                               int ts_len, 
                               int sp_len, 
-                              int paa_len, 
-                              int sax_size)
+                              int paa_len,
+                              int sax_vocab)
   {
     // In this function we compute the PAA approximation of each shapelet. The input data
     // is the array of shapelets. We compute the PAA representation for each and return the result
     // in 'means', which can be reshaped to (num_ts,num_sp,sp_len) on the Python side.
-    
-    
+        
     // Again we will use a 2D block, where the X dimension handles a time series,
     // and the Y dimension handles a shapelet within that time series.    
     int data_x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -63,26 +68,43 @@ cuda_module = SourceModule("""
         // Formula for flat 3D indexing is:
         //
         //      arr[x,y,z] = z + y*Depth + x*Depth*Width
-        //
         
-        // This is the base index of the shapelet in the data array.
-        // We iterate through a shapelet by starting at base_idx and iterating until
-        // base_idx + sp_len.
+        // data_row_idx is the index into the time series array.
         int data_row_idx = data_x * ts_len;
+        
+        // means_row_idx is the index into the 3D array of means that we want to output.
         int means_row_idx = (data_y * paa_len) + (data_x * paa_len * num_sp);
         
+        // In cases where the paa_len is not divisible by the sp_len (i.e. paa_len = 16 and sp_len = 5),
+        // We must upsample (or downsample) the subsequence in order to fit it into a paa_len-size word. 
+        // The authors of the paper do this by repeating the subsequence paa_len times, which creates a matrix with size
+        // paa_len * sp_len, which is divisible by both paa_len and sp_len. I accomplish the same thing here without 
+        // allocating any new memory by accumulating sums for each element of the PAA word, then taking the average.
         for(int i = 0; i < sp_len * paa_len; ++i){
             // Accumulate the values for this shapelet.
-            means[(i/sp_len) + means_row_idx] += data[(i/paa_len) + data_row_idx];
+            means[(i/sp_len) + means_row_idx] += data[(i/paa_len) + data_row_idx + data_y];
             // Divide the accumulated sum by the shapelet length.
             if(i % sp_len == sp_len-1){
                 means[(i/sp_len) + means_row_idx] = means[(i/sp_len) + means_row_idx]/sp_len;  
-                for(int k = 0; k < sax_size; ++k){
-                    sax[(i/sp_len) + means_row_idx] += (means[(i/sp_len) + means_row_idx] > cutoffs[k]);
-                }
             }
         }
+        
+        // After means are computed, we need to map each PAA value to a discrete SAX symbol. We can do this in the same
+        // kernel, and have each thread compute the SAX approximation for one shapelet.
+        // The output sax_words array is of shape (num_ts, num_sp, paa_len). I reuse the means_row_idx here because
+        // the means array and the sax_words array are the same shape.
+        
+        for(int i = 0; i < paa_len; i++){
+            // Iterate through the cutoffs array, evaluate the statement, and sum it. 
+            // A 'true' value will equal 1, so a value that is greater than the first cutoff will be assigned 1.
+            // A value that is greater than the second cutoff will be assigned 1+1 = 2, and so on. 
+            for(int j = 0; j < sax_vocab; ++j){
+                sax_words[means_row_idx + i] += (means[means_row_idx + i] > cutoffs[j]);
+            } 
+        }
+        
     }
   } 
+  
 """)
 

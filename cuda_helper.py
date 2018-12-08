@@ -49,16 +49,12 @@ class CUDA_SAX_hash(object):
         else:
             self.grid_size = (ceil(num_ts/self.threads_per_block[0]),ceil(num_sp/self.threads_per_block[1]))
 
-
-
         # Allocate space for the data, which is a (num_ts,len_ts) array of time series.
         data_gpu = cuda.mem_alloc(data.nbytes)
 
-        # Allocate space for the SAX word output, which is (num_ts,len_ts,paa_len) in size.
-        sax_words_gpu = cuda.mem_alloc(sax_words.nbytes)
-
-        # Allocate space for the cutoffs array, which is used to determine the symbol used for the SAX word.
         cutoffs_gpu = cuda.mem_alloc(cutoffs.nbytes)
+
+        sax_words_gpu = cuda.mem_alloc(sax_words.nbytes)
 
         # Allocate space for the means array, which is (num_ts,len_ts,paa_len) in size.
         means_gpu = cuda.mem_alloc(means.nbytes)
@@ -66,7 +62,6 @@ class CUDA_SAX_hash(object):
         # Only 'data' and 'cutoffs' are inputs, so these are the only two we copy over to the GPU.
         cuda.memcpy_htod(data_gpu,data)
         cuda.memcpy_htod(cutoffs_gpu,cutoffs)
-
         # Call the function on the GPU.
         self.cuda_sax_hash(data_gpu,
                            means_gpu,
@@ -81,6 +76,6 @@ class CUDA_SAX_hash(object):
                            block=self.threads_per_block,
                            grid=self.grid_size)
 
-        #cuda.memcpy_dtoh(means,means_gpu)
+        cuda.memcpy_dtoh(means,means_gpu)
         cuda.memcpy_dtoh(sax_words,sax_words_gpu)
         print("Done")

@@ -9,7 +9,7 @@ from matplotlib import pyplot as plt
 cuda_sdist = CUDA_sdist()
 cuda_sax = CUDA_SAX_hash()
 cluster_num = 0
-def get_ushapelet(data, splen, num_projections, use_cuda=False, tk=None):
+def get_ushapelet(data, splen, num_projections, use_cuda=True, tk=None):
     """
     :param data: Time series data matrix in the shape (num_time_series,time_series_length)
     :param splen: Length of the shapelet to extract.
@@ -22,7 +22,7 @@ def get_ushapelet(data, splen, num_projections, use_cuda=False, tk=None):
     subseq_time, subseqs = get_subsequences(data,splen)
 
     # Get the SAX representations of each of the sub-sequences
-    sax_time,sax_subseqs = convert_to_SAX(subseqs,data)
+    sax_time,sax_subseqs = convert_to_SAX(subseqs,data,use_cuda=use_cuda)
 
     collision_count_time = time.clock()
     counts = np.zeros((sax_subseqs.shape[0],sax_subseqs.shape[1],num_projections))
@@ -42,7 +42,7 @@ def get_ushapelet(data, splen, num_projections, use_cuda=False, tk=None):
     shapelet_cands = subseqs[cand_idcs[0],cand_idcs[1],:]
 
     # Compute the gap score for this set of shapelets.
-    gap_time,(scores,distances,dt) = compute_gap(shapelet_cands,data)
+    gap_time,(scores,distances,dt) = compute_gap(shapelet_cands,data,use_cuda=use_cuda)
 
     # Get the indices of the members of this cluster in the original dataset.
     search_time,(shapelet_idx,shapelet_score,cluster_members) = find_best_shapelet(scores,distances,dt)
@@ -105,7 +105,7 @@ def get_subsequences(data, splen):
     return subseqs
 
 @runtime
-def convert_to_SAX(data, raw_data, paa_len = 16, paa_vocab=4,use_cuda=True):
+def convert_to_SAX(data, raw_data, paa_len = 16, paa_vocab=4,use_cuda=False):
     """
     :param data: A Data matrix of (num_time_series, num_shapelet, length_shapelet).
     :param raw_data: The raw (un-subsequenced) data matrix. We pass this to CUDA so that we don't have to allocate the
@@ -122,10 +122,10 @@ def convert_to_SAX(data, raw_data, paa_len = 16, paa_vocab=4,use_cuda=True):
 
     if use_cuda:
         num_ts,ts_len = raw_data.shape
-        data_copy = raw_data.astype(np.float32)
+        data_copy = raw_data.astype(np.float32).copy(order="C")
 
         # Allocate some memory for the SAX words to be returned in.
-        sax_words = np.zeros((num_ts, num_sp, paa_len),dtype=np.uint8)
+        sax_words = np.zeros((num_ts, num_sp, paa_len),dtype=np.int32)
 
         cuda_sax(data_copy,means,cut_points[paa_vocab],sax_words,num_ts,num_sp,ts_len,sp_len,paa_len,paa_vocab)
     else:
@@ -145,20 +145,21 @@ def convert_to_SAX(data, raw_data, paa_len = 16, paa_vocab=4,use_cuda=True):
                 if i % sp_len == sp_len-1:
                     means[:,:,i//sp_len] = means[:,:,i//sp_len]/sp_len
 
-            #tmp = data.repeat(paa_len).reshape(num_ts,num_sp,paa_len,sp_len)
-            #means[:] = np.mean(tmp,axis=-1)
+            tmp = data.repeat(paa_len).reshape(num_ts,num_sp,paa_len,sp_len)
+            tmp = np.mean(tmp,axis=-1)
+            # Convert the PAA representations to SAX discrete strings.
+            sax_words = np.zeros_like(means, dtype=np.uint8)
 
+            for ts in range(num_ts):
+                for sp in range(num_sp):
+                    sax_words[ts, sp, :] = np.sum(np.array([cut_points[paa_vocab] <= x for x in means[ts, sp, :]]),
+                                                  axis=1)
     # If there are any consecutive shapelets that have the same PAA approximation, we keep track of it so that we do
     # not hash the shapelet twice and count both.
     skip_idcs = np.where(means[:,:-1,:] == means[:,1:,:])
-    means[skip_idcs] = -1
+    #means[skip_idcs] = -1
 
-    # Convert the PAA representations to SAX discrete strings.
-    sax_words = np.zeros_like(means,dtype=np.uint8)
 
-    for ts in range(num_ts):
-        for sp in range(num_sp):
-            sax_words[ts,sp,:] = np.sum(np.array([cut_points[paa_vocab] <= x for x in means[ts,sp,:]]),axis=1)
 
     return sax_words
 
@@ -227,7 +228,7 @@ def filter_candidates(counts):
     return idcs
 
 @runtime
-def compute_gap(shapelets,data,use_cuda=True):
+def compute_gap(shapelets,data,use_cuda=False):
     """
     :param shapelets: A set of shapelets to compute the gap score for.
     :param data: The data matrix of all time series data. Should be of shape (num_time_series, length_time_series)

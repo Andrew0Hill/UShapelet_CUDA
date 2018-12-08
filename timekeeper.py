@@ -1,4 +1,6 @@
 import numpy as np
+from os.path import join
+from os import getcwd
 from matplotlib import pyplot as plt
 from matplotlib import cm
 class TimeKeeper(object):
@@ -23,9 +25,9 @@ class TimeKeeper(object):
         plt.xlabel("Section")
         plt.bar(range(len(names)),mean_times,color=colors)
         plt.xticks(range(len(names)),labels=names)
-        plt.savefig("/tmp/pycharm_project_926/bar_chart.png")
+        plt.savefig(join(getcwd(),"bar_chart.png"))
         normalized = 100*mean_times/np.sum(mean_times)
         plt.figure(figsize=(10,9))
         plt.title("Percentage of Total Runtime by Section")
         plt.pie(normalized,labels=names,autopct="%2.2f%%",explode=(0.15,0.15,0.15,0.15,0.15,0.15),colors=colors)
-        plt.savefig("/tmp/pycharm_project_926/usage_chart.png")
+        plt.savefig(join(getcwd(),"usage_chart.png"))
