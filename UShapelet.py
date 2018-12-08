@@ -2,12 +2,12 @@ import numpy as np
 from math import ceil,floor
 import time
 from utils import cut_points, runtime
-from cuda_helper import CUDA_sdist
+from cuda_helper import CUDA_sdist, CUDA_SAX_hash
 from timekeeper import TimeKeeper
 from matplotlib import pyplot as plt
 
 cuda_sdist = CUDA_sdist()
-
+cuda_sax = CUDA_SAX_hash()
 cluster_num = 0
 def get_ushapelet(data, splen, num_projections, use_cuda=False, tk=None):
     """
@@ -22,7 +22,7 @@ def get_ushapelet(data, splen, num_projections, use_cuda=False, tk=None):
     subseq_time, subseqs = get_subsequences(data,splen)
 
     # Get the SAX representations of each of the sub-sequences
-    sax_time,sax_subseqs = convert_to_SAX(subseqs)
+    sax_time,sax_subseqs = convert_to_SAX(subseqs,data)
 
     collision_count_time = time.clock()
     counts = np.zeros((sax_subseqs.shape[0],sax_subseqs.shape[1],num_projections))
@@ -105,9 +105,11 @@ def get_subsequences(data, splen):
     return subseqs
 
 @runtime
-def convert_to_SAX(data, paa_len = 16, paa_vocab=4):
+def convert_to_SAX(data, raw_data, paa_len = 16, paa_vocab=4,use_cuda=True):
     """
     :param data: A Data matrix of (num_time_series, num_shapelet, length_shapelet).
+    :param raw_data: The raw (un-subsequenced) data matrix. We pass this to CUDA so that we don't have to allocate the
+    extra memory for each subsequence.
     :return: The SAX representations of each shapelet in the matrix.
     """
     num_ts,num_sp,sp_len = data.shape
@@ -115,26 +117,36 @@ def convert_to_SAX(data, paa_len = 16, paa_vocab=4):
     # This PAA representation will be a integer string of length paa_len, containing at most paa_vocab unique symbols.
 
     # Create an array to hold the means.
-    means = np.zeros((num_ts,num_sp,paa_len))
+    means = np.zeros((num_ts,num_sp,paa_len),dtype=np.float32)
 
-    # Convert each sequence to a PAA approximation.
-    if sp_len == paa_len:
-        means[:] = data
-    elif sp_len % paa_len == 0:
-        pts_per_letter = sp_len // paa_len
-        means[:] = np.mean(data.reshape(num_ts,num_sp,paa_len,pts_per_letter),axis=-1)
+
+    if use_cuda:
+        num_ts,ts_len = raw_data.shape
+        data_copy = raw_data.astype(np.float32)
+
+        # Allocate some memory for the SAX words to be returned in.
+        sax_words = np.zeros((num_ts, num_sp, paa_len),dtype=np.uint8)
+
+        cuda_sax(data_copy,means,cut_points[paa_vocab],sax_words,num_ts,num_sp,ts_len,sp_len,paa_len,paa_vocab)
     else:
+        # Convert each sequence to a PAA approximation.
+        if sp_len == paa_len:
+            means[:] = data
+        elif sp_len % paa_len == 0:
+            pts_per_letter = sp_len // paa_len
+            means[:] = np.mean(data.reshape(num_ts,num_sp,paa_len,pts_per_letter),axis=-1)
+        else:
 
-        # Alternative way of calculating this without using extra memory
-        for i in range(0,sp_len*paa_len):
-            means[:, :, i // sp_len] += data[:, :, i // paa_len]
-            # We are zero-indexed, so we have to check if the remainder is one less than sp_len
-            # instead of for a zero remainder.
-            if i % sp_len == sp_len-1:
-                means[:,:,i//sp_len] = means[:,:,i//sp_len]/sp_len
+            # Alternative way of calculating this without using extra memory
+            for i in range(0,sp_len*paa_len):
+                means[:, :, i // sp_len] += data[:, :, i // paa_len]
+                # We are zero-indexed, so we have to check if the remainder is one less than sp_len
+                # instead of for a zero remainder.
+                if i % sp_len == sp_len-1:
+                    means[:,:,i//sp_len] = means[:,:,i//sp_len]/sp_len
 
-        #tmp = data.repeat(paa_len).reshape(num_ts,num_sp,paa_len,sp_len)
-        #means[:] = np.mean(tmp,axis=-1)
+            #tmp = data.repeat(paa_len).reshape(num_ts,num_sp,paa_len,sp_len)
+            #means[:] = np.mean(tmp,axis=-1)
 
     # If there are any consecutive shapelets that have the same PAA approximation, we keep track of it so that we do
     # not hash the shapelet twice and count both.
