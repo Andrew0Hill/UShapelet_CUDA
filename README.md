@@ -10,7 +10,7 @@ Requires Python 3 with the following dependencies:
 * `matplotlib`
 
 # Usage
-To use the program run `python3 Driver.py <input_file> <cuda_flag>` I have added two sample input files `Trace.txt` and `FourClasses.txt` to the repo.
+To use the program run `python3 Driver.py <input_file> <cuda_flag>`. I have added two sample input files `Trace.txt` and `FourClasses.txt` to the repo.
 
 # Implementation
 I originally identified three areas for parallelization:
@@ -61,11 +61,19 @@ For this section, tests were run using the `Trace.txt` input file, as it is the 
 ## Sequential Runtime per Section
 <img src="https://github.com/Andrew0Hill/ParallelFinalProject/blob/master/nocuda/bar_chart.png" width="75%" align="middle">
 
+As expected, the Gap Score computation is the largest contributor to the total program runtime.
+<img src="https://github.com/Andrew0Hill/ParallelFinalProject/blob/master/nocuda/usage_chart.png" width="75%" align="middle">
 ## Parallel Runtime per Section
 
 <img src="https://github.com/Andrew0Hill/ParallelFinalProject/blob/master/withcuda/bar_chart.png" width="75%" align="middle">
 
 For `Trace.txt`, the sequential version takes almost 30 seconds to perform the Gap Score computation, while the CUDA version performs the same operation in less than one second.
+
+In the CUDA version, the Hash Collision check is now the longest operation, with an average time of ~3 seconds per shapelet. This is a large improvement over the sequential version.
+<img src="https://github.com/Andrew0Hill/ParallelFinalProject/blob/master/withcuda/usage_chart.png" width="75%" align="middle">
+
+# Conclusion
+Overall, I think that parallelizing this algorithm with CUDA was a good idea. Even though I was not able to complete all three targets for my parallelization, the current version of my algorithm vastly outperforms the sequential version, with no loss in cluster quality.
 
 
 
