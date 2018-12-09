@@ -73,7 +73,10 @@ In the CUDA version, the Hash Collision check is now the longest operation, with
 <img src="https://github.com/Andrew0Hill/ParallelFinalProject/blob/master/withcuda/usage_chart.png" width="75%" align="middle">
 
 # Conclusion
-Overall, I think that parallelizing this algorithm with CUDA was a good idea. Even though I was not able to complete all three targets for my parallelization, the current version of my algorithm vastly outperforms the sequential version, with no loss in cluster quality.
+Overall, I think that parallelizing this algorithm with CUDA was a good idea. Even though I was not able to complete all three targets for my parallelization, the current version of my algorithm vastly outperforms the sequential version, with no loss in cluster quality. 
+
+# Future Work
+In the future, I would like to parallelize the Hash Collision Checking portion of the program, so that all three of my parallelization targets will be complete. I would also like to investigate alternatives for computing the Gap Score. One method used by the authors for computing Gap Score involves taking a "fast" dot product between two vectors using FFT and Inverse FFT. GPUs can perform these operations quickly, so it could be possible to create an algorithm that performs Gap Score computation faster than my current implementation. 
 
 
 
