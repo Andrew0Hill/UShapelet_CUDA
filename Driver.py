@@ -21,7 +21,7 @@ if __name__ == "__main__":
 
     file_path = os.path.join(ROOT_DIR,data_file)
 
-    tk = TimeKeeper()
+    #tk = TimeKeeper()
 
     # The 'Trace.txt' example requires a different parsing method because it is not a CSV file, but space delimited.
     if data_file == "Trace.txt":
@@ -50,7 +50,7 @@ if __name__ == "__main__":
     #temp_data = data
     while data_idcs.shape[0] > 0:
         # Extract a U-Shapelet from the data.
-        idx,score,members,timings = get_ushapelet(data[data_idcs],30,10,tk=tk,use_cuda=cuda_flag)
+        idx,score,members,timings = get_ushapelet(data[data_idcs],30,10,tk=None,use_cuda=cuda_flag)
 
         if idx is None:
             print("Finished clustering. (No valid shapelets)")
