@@ -78,4 +78,3 @@ class CUDA_SAX_hash(object):
 
         cuda.memcpy_dtoh(means,means_gpu)
         cuda.memcpy_dtoh(sax_words,sax_words_gpu)
-        print("Done")

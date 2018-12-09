@@ -29,6 +29,7 @@ cuda_module = SourceModule("""
                 dist = sbsq[sp_ind + j] - ts[ts_ind + i + j];
                 sum += dist * dist;
             }
+            sum = sqrt(sum)/sqrt((float)sp_len);
             min_sum = sum < min_sum ? sum : min_sum;
         } 
         distances[sp_idx * num_ts + ts_idx] = min_sum;
@@ -102,9 +103,14 @@ cuda_module = SourceModule("""
                 sax_words[means_row_idx + i] += (means[means_row_idx + i] > cutoffs[j]);
             } 
         }
-        
     }
   } 
+  
+  /*
+   *
+   * BEGIN count_collisions
+   *
+   */
   
 """)
 

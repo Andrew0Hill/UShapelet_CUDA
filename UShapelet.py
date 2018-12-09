@@ -26,6 +26,7 @@ def get_ushapelet(data, splen, num_projections, use_cuda=True, tk=None):
 
     collision_count_time = time.clock()
     counts = np.zeros((sax_subseqs.shape[0],sax_subseqs.shape[1],num_projections))
+
     for i in range(num_projections):
         projections = get_random_projections(sax_subseqs)
         counts[:,:,i] = count_collisions(projections)
@@ -145,8 +146,11 @@ def convert_to_SAX(data, raw_data, paa_len = 16, paa_vocab=4,use_cuda=False):
                 if i % sp_len == sp_len-1:
                     means[:,:,i//sp_len] = means[:,:,i//sp_len]/sp_len
 
-            tmp = data.repeat(paa_len).reshape(num_ts,num_sp,paa_len,sp_len)
-            tmp = np.mean(tmp,axis=-1)
+            # This method is cleaner code, but does require using more memory. I switched to the version above
+            # for homogeneity with the CUDA version.
+            #tmp = data.repeat(paa_len).reshape(num_ts,num_sp,paa_len,sp_len)
+            #tmp = np.mean(tmp,axis=-1)
+
             # Convert the PAA representations to SAX discrete strings.
             sax_words = np.zeros_like(means, dtype=np.uint8)
 
@@ -154,12 +158,6 @@ def convert_to_SAX(data, raw_data, paa_len = 16, paa_vocab=4,use_cuda=False):
                 for sp in range(num_sp):
                     sax_words[ts, sp, :] = np.sum(np.array([cut_points[paa_vocab] <= x for x in means[ts, sp, :]]),
                                                   axis=1)
-    # If there are any consecutive shapelets that have the same PAA approximation, we keep track of it so that we do
-    # not hash the shapelet twice and count both.
-    skip_idcs = np.where(means[:,:-1,:] == means[:,1:,:])
-    #means[skip_idcs] = -1
-
-
 
     return sax_words
 
@@ -234,9 +232,6 @@ def compute_gap(shapelets,data,use_cuda=False):
     :param data: The data matrix of all time series data. Should be of shape (num_time_series, length_time_series)
     :return: the gap score metric for this shapelet or shapelets.
     """
-
-    lb = 2
-
     num_sp,len_sp = shapelets.shape
 
     num_ts,len_ts = data.shape
@@ -262,12 +257,13 @@ def compute_gap(shapelets,data,use_cuda=False):
                 # Iterate through all possible positions of this shapelet
                 # There are data.shape[1] - sp_len + 1 of these positions.
                 for k in range(len_ts - len_sp + 1):
-                    dist = np.sum(np.square(shapelets[i] - data[j, k:k + len_sp]))
+                    dist = np.sqrt(np.sum(np.square(shapelets[i] - data[j, k:k + len_sp])))/np.sqrt(len_sp)
                     if dist < min_dist:
                         min_dist = dist
                 distances[i, j] = min_dist
 
     sorted_dists = np.sort(distances,axis=1)
+
     # No, I don't know why
     startPoint = ceil(sorted_dists.shape[1]*0.167)-1
     endPoint = floor(sorted_dists.shape[1]*0.833)-1
