@@ -4,6 +4,8 @@ import time
 from utils import cut_points, runtime
 from cuda_helper import CUDA_sdist, CUDA_SAX_hash
 from timekeeper import TimeKeeper
+import matplotlib
+matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 
 cuda_sdist = CUDA_sdist()

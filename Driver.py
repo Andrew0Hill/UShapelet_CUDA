@@ -76,4 +76,4 @@ if __name__ == "__main__":
         print()
     print("%d clusters extracted." % np.unique(clust_labels).shape[0])
     print("Rand Index (Actual vs. Expected) %f" % adjusted_rand_score(labels,clust_labels))
-    tk.print_summary()
+    #tk.print_summary()
