@@ -36,7 +36,7 @@ def get_ushapelet(data, splen, num_projections, use_cuda=True, tk=None):
     filter_time,cand_idcs = filter_candidates(counts)
     # If no candidates passed filtering, we are done clustering.
     if cand_idcs.shape[1] == 0:
-        return None,None,None
+        return None,None,None,None
 
 
     # Get the actual shapelets that are referenced by the indices we got from the candidate filtering.
@@ -60,12 +60,13 @@ def get_ushapelet(data, splen, num_projections, use_cuda=True, tk=None):
     plt.savefig("Cluster_%d.png" % cluster_num)
     cluster_num += 1
 
+    timings = [subseq_time,sax_time,collision_count_time,filter_time,gap_time,search_time]
     if tk:
         # Add the runtimes from this run
         tk.accum(subseq_time,sax_time,collision_count_time,filter_time,gap_time,search_time)
 
     # Return these indices along with the shapelet that we found.
-    return shapelet_idx,shapelet_score,cluster_members
+    return shapelet_idx,shapelet_score,cluster_members,timings
 
 @runtime
 def find_best_shapelet(scores,distances,dt):

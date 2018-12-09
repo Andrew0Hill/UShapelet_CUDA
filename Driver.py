@@ -8,17 +8,20 @@ from sklearn.metrics import adjusted_rand_score
 if __name__ == "__main__":
 
     ROOT_DIR = os.getcwd()
-    _,data_file,cuda_select = sys.argv
-
+    try:
+        _,data_file,cuda_select = sys.argv
+    except Exception as e:
+        print("Usage python3 Driver.py <filename> <use_cuda>")
+        exit()
     # Run with CUDA if selected, otherwise don't.
-    cuda_flag = True if cuda_select == "true" else False
+    cuda_flag = True if cuda_select == "1" else False
     print("CUDA enable flag = %d" % cuda_flag)
     if data_file not in ["Trace.txt","FourClasses.txt"]:
         print("Running using custom file. File will be read as a CSV.")
 
     file_path = os.path.join(ROOT_DIR,data_file)
 
-    tk = TimeKeeper()
+    #tk = TimeKeeper()
 
     # The 'Trace.txt' example requires a different parsing method because it is not a CSV file, but space delimited.
     if data_file == "Trace.txt":
@@ -47,7 +50,7 @@ if __name__ == "__main__":
     #temp_data = data
     while data_idcs.shape[0] > 0:
         # Extract a U-Shapelet from the data.
-        idx,score,members = get_ushapelet(data[data_idcs],30,10, tk=tk,use_cuda=cuda_flag)
+        idx,score,members,timings = get_ushapelet(data[data_idcs],30,10,use_cuda=cuda_flag)
 
         if idx is None:
             print("Finished clustering. (No valid shapelets)")
@@ -63,7 +66,13 @@ if __name__ == "__main__":
         clust_num += 1
         # Remove the members of this cluster from the data, and iterate again with the old data.
         data_idcs = np.delete(data_idcs,members,axis=0)
-
+        print("Runtimes:")
+        print("Subsequence: %f" % timings[0])
+        print("SAX: %f" % timings[1])
+        print("Collision Check: %f" % timings[2])
+        print("Filter: %f" % timings[3])
+        print("Gap Score: %f" % timings[4])
+        print("Search: %f" % timings[5])
+        print()
     print("%d clusters extracted." % np.unique(clust_labels).shape[0])
     print("Rand Index (Actual vs. Expected) %f" % adjusted_rand_score(labels,clust_labels))
-    tk.print_summary()
