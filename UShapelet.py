@@ -16,14 +16,15 @@ def get_ushapelet(data, splen, num_projections, use_cuda=True, tk=None):
     :param num_projections: Number of random masking rounds to use.
     :return: Returns a new U-shapelet instance.
     """
+
     # Get subsequences of each time series
     # We can use indices here to ensure that we are not making unecessary copies of data.
-
     subseq_time, subseqs = get_subsequences(data,splen)
 
     # Get the SAX representations of each of the sub-sequences
     sax_time,sax_subseqs = convert_to_SAX(subseqs,data,use_cuda=use_cuda)
 
+    # Count how long it takes to find collisions.
     collision_count_time = time.clock()
     counts = np.zeros((sax_subseqs.shape[0],sax_subseqs.shape[1],num_projections))
 
@@ -31,9 +32,10 @@ def get_ushapelet(data, splen, num_projections, use_cuda=True, tk=None):
         projections = get_random_projections(sax_subseqs)
         counts[:,:,i] = count_collisions(projections)
     collision_count_time = time.clock() - collision_count_time
-    # Returns a sorted list of indices
 
+    # Returns a sorted list of indices
     filter_time,cand_idcs = filter_candidates(counts)
+
     # If no candidates passed filtering, we are done clustering.
     if cand_idcs.shape[1] == 0:
         return None,None,None,None
@@ -48,8 +50,10 @@ def get_ushapelet(data, splen, num_projections, use_cuda=True, tk=None):
     # Get the indices of the members of this cluster in the original dataset.
     search_time,(shapelet_idx,shapelet_score,cluster_members) = find_best_shapelet(scores,distances,dt)
 
+    # Get the time series index, and index of the shapelet within that time series from our candidate list.
     ts_idx,sp_idx = cand_idcs[:,shapelet_idx]
     shapelet_subseq = subseqs[ts_idx,sp_idx,:]
+
     # Draw a figure of the shapelet that we extracted.
     global cluster_num
     plt.figure(figsize=(9,7))
@@ -115,13 +119,14 @@ def convert_to_SAX(data, raw_data, paa_len = 16, paa_vocab=4,use_cuda=False):
     :return: The SAX representations of each shapelet in the matrix.
     """
     num_ts,num_sp,sp_len = data.shape
+
     # The PAA (Piecewise Aggregate Approximation) step will generate a PAA approximation of every sub-sequence.
     # This PAA representation will be a integer string of length paa_len, containing at most paa_vocab unique symbols.
 
     # Create an array to hold the means.
     means = np.zeros((num_ts,num_sp,paa_len),dtype=np.float32)
 
-
+    # If CUDA is enabled, we just need to set up the input arrays, then send everything to the GPU for processing.
     if use_cuda:
         num_ts,ts_len = raw_data.shape
         data_copy = raw_data.astype(np.float32).copy(order="C")
@@ -194,6 +199,9 @@ def count_collisions(projections):
     # Dictionary contains pairs of {SAX_Word -> first_index_appearance}
     collisions_map = {}
 
+    # Iterate over each time series and each shapelet in that time series, then perform the hashing operation.
+    # If no shapelet with this string has been seen before, then add a reference to the parent time series and shapelet.
+    # Otherwise just increment the counter, to indicate that we've seen another occurrence of this shapelet.
     for ts in range(num_ts):
         for sp in range(num_sp):
             tmp_string = "".join(map(str,projections[ts,sp,:]))
@@ -201,6 +209,8 @@ def count_collisions(projections):
                 collisions_map[tmp_string] = (ts,sp)
             else:
                 collisions[collisions_map[tmp_string]] += 1
+
+    # Return the collisions matrix.
     return collisions
 
 @runtime
@@ -212,16 +222,20 @@ def filter_candidates(counts):
     num_ts,num_sp,num_masks = counts.shape
     lb = max(0.1*num_ts,2)
     ub = num_ts*0.9
+
     # Take the average of the number of collisions over the last axis of the array
     mean = np.mean(counts,axis=-1)
 
+    # Get the indices of the candidates that pass filtering
     cand_orig_idcs = np.argwhere(np.logical_and(mean > lb, mean < ub))
     cand_idcs = np.where(np.logical_and(mean > lb, mean < ub))
 
     cands = counts[cand_idcs]
 
+    # Sort the indices by the heurisitic (standard deviation)
     sorted_cand_indcs = np.argsort(np.std(cands,axis=1))
 
+    # Get the indices and return them.
     idcs = cand_orig_idcs[sorted_cand_indcs].T
 
     return idcs
@@ -265,7 +279,6 @@ def compute_gap(shapelets,data,use_cuda=False):
 
     sorted_dists = np.sort(distances,axis=1)
 
-    # No, I don't know why
     startPoint = ceil(sorted_dists.shape[1]*0.167)-1
     endPoint = floor(sorted_dists.shape[1]*0.833)-1
 
@@ -273,6 +286,8 @@ def compute_gap(shapelets,data,use_cuda=False):
     scores = np.zeros(num_sp)
     # Array to hold the dt, or distance cutoff that separates group A from group B.
     dt = np.zeros(num_sp)
+
+    # Search for the partitioning with the highest gap score for each shapelet.
     for i in range(num_sp):
         for j in range(startPoint,endPoint):
             d = sorted_dists[i,j]

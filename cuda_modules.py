@@ -106,11 +106,5 @@ cuda_module = SourceModule("""
     }
   } 
   
-  /*
-   *
-   * BEGIN count_collisions
-   *
-   */
-  
 """)
 
