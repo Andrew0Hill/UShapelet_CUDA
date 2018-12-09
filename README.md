@@ -10,7 +10,7 @@ Requires Python 3 with the following dependencies:
 * `matplotlib`
 
 # Usage
-To use the program run `python3 Driver.py <input_file> <cuda_flag>`. `<cuda_flag` should be `1` to enable CUDA, or any other value for the sequential version of the algorithm. I have added two sample input files `Trace.txt` and `FourClasses.txt` to the repo.
+To use the program run `python3 Driver.py <input_file> <cuda_flag>`. `<cuda_flag>` should be `1` to enable CUDA, or any other value for the sequential version of the algorithm. I have added two sample input files `Trace.txt` and `FourClasses.txt` to the repo.
 
 # Implementation
 I originally identified three areas for parallelization:
